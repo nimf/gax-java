@@ -31,6 +31,7 @@ package com.google.api.gax.rpc;
 
 import com.google.api.core.BetaApi;
 import com.google.api.core.InternalExtensionOnly;
+import com.google.api.gax.rpc.mtls.MtlsProvider;
 import com.google.auth.Credentials;
 import java.io.IOException;
 import java.util.Map;
@@ -98,6 +99,12 @@ public interface TransportChannelProvider {
    * <p>This method should only be called if {@link #needsEndpoint()} returns true.
    */
   TransportChannelProvider withEndpoint(String endpoint);
+
+  /** Sets mtls provider. */
+  TransportChannelProvider withMtlsProvider(MtlsProvider provider);
+
+  /** Get mtls provider. */
+  MtlsProvider getMtlsProvider();
 
   /** Reports whether this provider allows pool size customization. */
   @BetaApi("The surface for customizing pool size is not stable yet and may change in the future.")

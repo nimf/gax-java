@@ -31,6 +31,7 @@ package com.google.api.gax.rpc;
 
 import com.google.api.core.BetaApi;
 import com.google.api.core.InternalExtensionOnly;
+import com.google.api.gax.rpc.mtls.MtlsProvider;
 import com.google.auth.Credentials;
 import com.google.common.base.Preconditions;
 import java.io.IOException;
@@ -129,5 +130,16 @@ public class FixedTransportChannelProvider implements TransportChannelProvider {
   /** Creates a FixedTransportChannelProvider. */
   public static FixedTransportChannelProvider create(TransportChannel transportChannel) {
     return new FixedTransportChannelProvider(transportChannel);
+  }
+
+  @Override
+  public TransportChannelProvider withMtlsProvider(MtlsProvider provider) {
+    throw new UnsupportedOperationException(
+        "FixedTransportChannelProvider doesn't need MtlsProvider");
+  }
+
+  @Override
+  public MtlsProvider getMtlsProvider() {
+    return null;
   }
 }

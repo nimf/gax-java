@@ -36,6 +36,7 @@ import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.HeaderProvider;
 import com.google.api.gax.rpc.TransportChannel;
 import com.google.api.gax.rpc.TransportChannelProvider;
+import com.google.api.gax.rpc.mtls.MtlsProvider;
 import com.google.auth.Credentials;
 import io.grpc.CallOptions;
 import io.grpc.Channel;
@@ -201,5 +202,15 @@ public class LocalChannelProvider implements TransportChannelProvider {
     List<Metadata> getSubmittedHeaders() {
       return submittedHeaders;
     }
+  }
+
+  @Override
+  public TransportChannelProvider withMtlsProvider(MtlsProvider provider) {
+    throw new UnsupportedOperationException("LocalChannelProvider doesn't need MtlsProvider");
+  }
+
+  @Override
+  public MtlsProvider getMtlsProvider() {
+    return null;
   }
 }

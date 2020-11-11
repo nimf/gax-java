@@ -36,6 +36,7 @@ import com.google.api.gax.core.BackgroundResource;
 import com.google.api.gax.core.ExecutorAsBackgroundResource;
 import com.google.api.gax.core.ExecutorProvider;
 import com.google.api.gax.rpc.internal.QuotaProjectIdHidingCredentials;
+import com.google.api.gax.rpc.mtls.MtlsProvider;
 import com.google.api.gax.tracing.ApiTracerFactory;
 import com.google.api.gax.tracing.NoopApiTracerFactory;
 import com.google.auth.Credentials;
@@ -44,6 +45,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -132,6 +134,30 @@ public abstract class ClientContext {
     return create(settings.getStubSettings());
   }
 
+  /** Returns the endpoint that should be used. */
+  static String getEndpoint(
+      String endpoint, String mtlsEndpoint, boolean endpointOverridable, MtlsProvider mtlsProvider)
+      throws IOException {
+    if (mtlsProvider != null && endpointOverridable) {
+      if ("always".equals(mtlsProvider.useMtlsEndpoint())) {
+        return mtlsEndpoint;
+      } else if ("never".equals(mtlsProvider.useMtlsEndpoint())) {
+        return endpoint;
+      } else {
+        try {
+          if (mtlsProvider != null
+              && mtlsProvider.useMtlsClientCertificate()
+              && mtlsProvider.getKeyStore() != null) {
+            return mtlsEndpoint;
+          }
+        } catch (GeneralSecurityException e) {
+          throw new IOException(e.toString());
+        }
+      }
+    }
+    return endpoint;
+  }
+
   /**
    * Instantiates the executor, credentials, and transport context based on the given client
    * settings.
@@ -160,11 +186,17 @@ public abstract class ClientContext {
     if (transportChannelProvider.needsHeaders()) {
       transportChannelProvider = transportChannelProvider.withHeaders(headers);
     }
-    if (transportChannelProvider.needsEndpoint()) {
-      transportChannelProvider = transportChannelProvider.withEndpoint(settings.getEndpoint());
-    }
     if (transportChannelProvider.needsCredentials() && credentials != null) {
       transportChannelProvider = transportChannelProvider.withCredentials(credentials);
+    }
+    if (transportChannelProvider.needsEndpoint()) {
+      transportChannelProvider =
+          transportChannelProvider.withEndpoint(
+              getEndpoint(
+                  settings.getEndpoint(),
+                  settings.getMtlsEndpoint(),
+                  settings.getEndpointOverridable(),
+                  transportChannelProvider.getMtlsProvider()));
     }
     TransportChannel transportChannel = transportChannelProvider.getTransportChannel();
 

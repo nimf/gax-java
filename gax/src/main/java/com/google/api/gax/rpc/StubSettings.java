@@ -70,10 +70,19 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
   private final TransportChannelProvider transportChannelProvider;
   private final ApiClock clock;
   private final String endpoint;
+  private final String mtlsEndpoint;
   private final String quotaProjectId;
   @Nullable private final WatchdogProvider streamWatchdogProvider;
   @Nonnull private final Duration streamWatchdogCheckInterval;
   @Nonnull private final ApiTracerFactory tracerFactory;
+
+  /**
+   * Internal state tracks when creating transport if we are allowed to override the endpoint with
+   * mTLS endpoint. Only the default endpoint set by the client library by calling {@link
+   * Builder#setOverridableEndpoint(String)} is overrideable. User provided endpoint by calling
+   * {@link Builder#setEndpoint(String)} is not overrideable.
+   */
+  private final boolean endpointOverridable;
 
   /** Constructs an instance of StubSettings. */
   protected StubSettings(Builder builder) {
@@ -84,6 +93,8 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
     this.internalHeaderProvider = builder.internalHeaderProvider;
     this.clock = builder.clock;
     this.endpoint = builder.endpoint;
+    this.mtlsEndpoint = builder.mtlsEndpoint;
+    this.endpointOverridable = builder.endpointOverridable;
     this.quotaProjectId = builder.quotaProjectId;
     this.streamWatchdogProvider = builder.streamWatchdogProvider;
     this.streamWatchdogCheckInterval = builder.streamWatchdogCheckInterval;
@@ -118,6 +129,15 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
 
   public final String getEndpoint() {
     return endpoint;
+  }
+
+  public final String getMtlsEndpoint() {
+    return mtlsEndpoint;
+  }
+
+  /** Internal state, so limit the visibility to this package only. */
+  final boolean getEndpointOverridable() {
+    return endpointOverridable;
   }
 
   public final String getQuotaProjectId() {
@@ -155,6 +175,8 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
         .add("internalHeaderProvider", internalHeaderProvider)
         .add("clock", clock)
         .add("endpoint", endpoint)
+        .add("mtlsEndpoint", mtlsEndpoint)
+        .add("endpointOverridable", endpointOverridable)
         .add("quotaProjectId", quotaProjectId)
         .add("streamWatchdogProvider", streamWatchdogProvider)
         .add("streamWatchdogCheckInterval", streamWatchdogCheckInterval)
@@ -174,10 +196,19 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
     private TransportChannelProvider transportChannelProvider;
     private ApiClock clock;
     private String endpoint;
+    private String mtlsEndpoint;
     private String quotaProjectId;
     @Nullable private WatchdogProvider streamWatchdogProvider;
     @Nonnull private Duration streamWatchdogCheckInterval;
     @Nonnull private ApiTracerFactory tracerFactory;
+
+    /**
+     * Internal state tracks when creating transport if we are allowed to override the endpoint with
+     * mTLS endpoint. Only the default endpoint set by the client library by calling {@link
+     * #setOverridableEndpoint(String)} is overrideable. User provided endpoint by calling {@link
+     * #setEndpoint(String)} is not overrideable.
+     */
+    private boolean endpointOverridable = false;
 
     /** Create a builder from a StubSettings object. */
     protected Builder(StubSettings settings) {
@@ -188,6 +219,8 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
       this.internalHeaderProvider = settings.internalHeaderProvider;
       this.clock = settings.clock;
       this.endpoint = settings.endpoint;
+      this.mtlsEndpoint = settings.mtlsEndpoint;
+      this.endpointOverridable = settings.endpointOverridable;
       this.quotaProjectId = settings.quotaProjectId;
       this.streamWatchdogProvider = settings.streamWatchdogProvider;
       this.streamWatchdogCheckInterval = settings.streamWatchdogCheckInterval;
@@ -220,6 +253,7 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
         this.internalHeaderProvider = new NoHeaderProvider();
         this.clock = NanoClock.getDefaultClock();
         this.endpoint = null;
+        this.mtlsEndpoint = null;
         this.quotaProjectId = null;
         this.streamWatchdogProvider = InstantiatingWatchdogProvider.create();
         this.streamWatchdogCheckInterval = Duration.ofSeconds(10);
@@ -234,6 +268,9 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
             FixedHeaderProvider.create(clientContext.getInternalHeaders());
         this.clock = clientContext.getClock();
         this.endpoint = clientContext.getEndpoint();
+        if (this.endpoint != null) {
+          this.mtlsEndpoint = this.endpoint.replace("googleapis.com", "mtls.googleapis.com");
+        }
         this.streamWatchdogProvider =
             FixedWatchdogProvider.create(clientContext.getStreamWatchdog());
         this.streamWatchdogCheckInterval = clientContext.getStreamWatchdogCheckInterval();
@@ -334,6 +371,19 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
 
     public B setEndpoint(String endpoint) {
       this.endpoint = endpoint;
+      if (this.endpoint != null && this.mtlsEndpoint == null) {
+        this.mtlsEndpoint = this.endpoint.replace("googleapis.com", "mtls.googleapis.com");
+      }
+      return self();
+    }
+
+    protected B setOverridableEndpoint(String endpoint) {
+      this.endpointOverridable = true;
+      return setEndpoint(endpoint);
+    }
+
+    public B setMtlsEndpoint(String mtlsEndpoint) {
+      this.mtlsEndpoint = mtlsEndpoint;
       return self();
     }
 
@@ -408,6 +458,10 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
       return endpoint;
     }
 
+    public String getMtlsEndpoint() {
+      return mtlsEndpoint;
+    }
+
     /** Gets the QuotaProjectId that was previously set on this Builder. */
     public String getQuotaProjectId() {
       return quotaProjectId;
@@ -445,6 +499,8 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
           .add("internalHeaderProvider", internalHeaderProvider)
           .add("clock", clock)
           .add("endpoint", endpoint)
+          .add("mtlsEndpoint", mtlsEndpoint)
+          .add("endpointOverridable", endpointOverridable)
           .add("quotaProjectId", quotaProjectId)
           .add("streamWatchdogProvider", streamWatchdogProvider)
           .add("streamWatchdogCheckInterval", streamWatchdogCheckInterval)
