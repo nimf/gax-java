@@ -37,6 +37,8 @@ import com.google.api.core.ApiFunction;
 import com.google.api.gax.grpc.InstantiatingGrpcChannelProvider.Builder;
 import com.google.api.gax.rpc.HeaderProvider;
 import com.google.api.gax.rpc.TransportChannelProvider;
+import com.google.api.gax.rpc.mtls.MtlsProvider;
+import com.google.api.gax.rpc.mtls.MtlsTransportChannelBaseTest;
 import com.google.auth.oauth2.CloudShellCredentials;
 import com.google.auth.oauth2.ComputeEngineCredentials;
 import io.grpc.ManagedChannel;
@@ -55,7 +57,7 @@ import org.mockito.Mockito;
 import org.threeten.bp.Duration;
 
 @RunWith(JUnit4.class)
-public class InstantiatingGrpcChannelProviderTest {
+public class InstantiatingGrpcChannelProviderTest extends MtlsTransportChannelBaseTest {
 
   @Test
   public void testEndpoint() {
@@ -377,5 +379,16 @@ public class InstantiatingGrpcChannelProviderTest {
       Mockito.verify(mockChannelPrimer, Mockito.times(poolSize))
           .primeChannel(Mockito.any(ManagedChannel.class));
     }
+  }
+
+  @Override
+  protected Object getMtlsObjectFromTransportChannel(MtlsProvider provider) throws IOException {
+    return InstantiatingGrpcChannelProvider.newBuilder()
+        .setEndpoint("localhost:8080")
+        .setMtlsProvider(provider)
+        .setHeaderProvider(Mockito.mock(HeaderProvider.class))
+        .setExecutor(Mockito.mock(Executor.class))
+        .build()
+        .createSslContext();
   }
 }

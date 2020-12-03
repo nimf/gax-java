@@ -38,8 +38,10 @@ import com.google.api.gax.rpc.FixedHeaderProvider;
 import com.google.api.gax.rpc.HeaderProvider;
 import com.google.api.gax.rpc.TransportChannel;
 import com.google.api.gax.rpc.TransportChannelProvider;
+import com.google.api.gax.rpc.mtls.MtlsProvider;
 import com.google.auth.Credentials;
 import com.google.auth.oauth2.ComputeEngineCredentials;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -48,13 +50,20 @@ import com.google.common.io.CharStreams;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.alts.ComputeEngineChannelBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.security.GeneralSecurityException;
+import java.security.KeyStore;
 import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.Nullable;
+import javax.net.ssl.KeyManagerFactory;
 import org.threeten.bp.Duration;
 
 /**
@@ -94,6 +103,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
   @Nullable private final Credentials credentials;
   @Nullable private final ChannelPrimer channelPrimer;
   @Nullable private final Boolean attemptDirectPath;
+  @Nullable private final MtlsProvider mtlsProvider;
 
   @Nullable
   private final ApiFunction<ManagedChannelBuilder, ManagedChannelBuilder> channelConfigurator;
@@ -103,6 +113,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     this.executor = builder.executor;
     this.headerProvider = builder.headerProvider;
     this.endpoint = builder.endpoint;
+    this.mtlsProvider = builder.mtlsProvider;
     this.envProvider = builder.envProvider;
     this.interceptorProvider = builder.interceptorProvider;
     this.maxInboundMessageSize = builder.maxInboundMessageSize;
@@ -258,6 +269,26 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     return false;
   }
 
+  // TODO (sijunliu): reimplement this when new apis are available in grpc-java.
+  SslContext createSslContext() throws IOException {
+    if (mtlsProvider.useMtlsClientCertificate()) {
+      try {
+        KeyStore mtlsKeyStore = mtlsProvider.getKeyStore();
+        if (mtlsKeyStore != null) {
+          SslContextBuilder sslContextBuilder = GrpcSslContexts.forClient();
+          KeyManagerFactory factory =
+              KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+          factory.init(mtlsKeyStore, new char[] {});
+          sslContextBuilder.keyManager(factory);
+          return sslContextBuilder.build();
+        }
+      } catch (GeneralSecurityException e) {
+        throw new IOException(e.toString());
+      }
+    }
+    return null;
+  }
+
   private ManagedChannel createSingleChannel() throws IOException {
     GrpcHeaderInterceptor headerInterceptor =
         new GrpcHeaderInterceptor(headerProvider.getHeaders());
@@ -314,6 +345,11 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
             .intercept(metadataHandlerInterceptor)
             .userAgent(headerInterceptor.getUserAgentHeader())
             .executor(executor);
+    // TODO (sijunliu): reimplement this when new apis are available in grpc-java.
+    SslContext sslContext = createSslContext();
+    if (sslContext != null) {
+      builder = ((NettyChannelBuilder) builder).sslContext(sslContext);
+    }
 
     if (maxInboundMetadataSize != null) {
       builder.maxInboundMetadataSize(maxInboundMetadataSize);
@@ -389,6 +425,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     private HeaderProvider headerProvider;
     private String endpoint;
     private EnvironmentProvider envProvider;
+    private MtlsProvider mtlsProvider = new MtlsProvider();
     @Nullable private GrpcInterceptorProvider interceptorProvider;
     @Nullable private Integer maxInboundMessageSize;
     @Nullable private Integer maxInboundMetadataSize;
@@ -423,6 +460,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
       this.credentials = provider.credentials;
       this.channelPrimer = provider.channelPrimer;
       this.attemptDirectPath = provider.attemptDirectPath;
+      this.mtlsProvider = provider.mtlsProvider;
     }
 
     /** Sets the number of available CPUs, used internally for testing. */
@@ -466,6 +504,12 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     public Builder setEndpoint(String endpoint) {
       validateEndpoint(endpoint);
       this.endpoint = endpoint;
+      return this;
+    }
+
+    @VisibleForTesting
+    Builder setMtlsProvider(MtlsProvider mtlsProvider) {
+      this.mtlsProvider = mtlsProvider;
       return this;
     }
 

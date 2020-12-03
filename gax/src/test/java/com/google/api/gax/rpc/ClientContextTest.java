@@ -30,6 +30,10 @@
 package com.google.api.gax.rpc;
 
 import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.google.api.core.ApiClock;
 import com.google.api.gax.core.BackgroundResource;
@@ -37,14 +41,19 @@ import com.google.api.gax.core.CredentialsProvider;
 import com.google.api.gax.core.ExecutorProvider;
 import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.gax.core.FixedExecutorProvider;
+import com.google.api.gax.rpc.mtls.MtlsProvider;
+import com.google.api.gax.rpc.mtls.MtlsProvider.UseMtlsEndpoint;
 import com.google.api.gax.rpc.testing.FakeChannel;
 import com.google.api.gax.rpc.testing.FakeClientSettings;
+import com.google.api.gax.rpc.testing.FakeMtlsProvider;
+import com.google.api.gax.rpc.testing.FakeStubSettings;
 import com.google.api.gax.rpc.testing.FakeTransportChannel;
 import com.google.auth.Credentials;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.truth.Truth;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -597,5 +606,93 @@ public class ClientContextTest {
 
     assertThat(transportChannel.getHeaders())
         .containsEntry("user-agent", "user-supplied-agent internal-agent");
+  }
+
+  private static String endpoint = "https://foo.googleapis.com";
+  private static String mtlsEndpoint = "https://foo.mtls.googleapis.com";
+
+  @Test
+  public void testAutoUseMtlsEndpoint() throws IOException, GeneralSecurityException {
+    // Test the case client certificate exists and mTLS endpoint is selected.
+    boolean endpointOverridable = true;
+    MtlsProvider provider =
+        new FakeMtlsProvider(
+            true, UseMtlsEndpoint.AUTO, FakeMtlsProvider.createTestMtlsKeyStore(), "", false);
+    String endpointSelected =
+        ClientContext.getEndpoint(endpoint, mtlsEndpoint, endpointOverridable, provider);
+    assertEquals(mtlsEndpoint, endpointSelected);
+  }
+
+  @Test
+  public void testEndpointNotOverridable() throws IOException, GeneralSecurityException {
+    // Test the case that endpoint is not overridable so the original endpoint is selected.
+    boolean endpointOverridable = false;
+    MtlsProvider provider =
+        new FakeMtlsProvider(
+            true, UseMtlsEndpoint.AUTO, FakeMtlsProvider.createTestMtlsKeyStore(), "", false);
+    String endpointSelected =
+        ClientContext.getEndpoint(endpoint, mtlsEndpoint, endpointOverridable, provider);
+    assertEquals(endpoint, endpointSelected);
+  }
+
+  @Test
+  public void testNoClientCertificate() throws IOException, GeneralSecurityException {
+    // Test the case that client certificates doesn't exists so the original endpoint is selected.
+    boolean endpointOverridable = true;
+    MtlsProvider provider = new FakeMtlsProvider(true, UseMtlsEndpoint.AUTO, null, "", false);
+    String endpointSelected =
+        ClientContext.getEndpoint(endpoint, mtlsEndpoint, endpointOverridable, provider);
+    assertEquals(endpoint, endpointSelected);
+  }
+
+  @Test
+  public void testAlwaysUseMtlsEndpoint() throws IOException, GeneralSecurityException {
+    // Test the case that mTLS endpoint is always used.
+    boolean endpointOverridable = true;
+    MtlsProvider provider = new FakeMtlsProvider(false, UseMtlsEndpoint.ALWAYS, null, "", false);
+    String endpointSelected =
+        ClientContext.getEndpoint(endpoint, mtlsEndpoint, endpointOverridable, provider);
+    assertEquals(mtlsEndpoint, endpointSelected);
+  }
+
+  @Test
+  public void testNeverUseMtlsEndpoint() throws IOException, GeneralSecurityException {
+    // Test the case that mTLS endpoint is never used.
+    boolean endpointOverridable = true;
+    MtlsProvider provider =
+        new FakeMtlsProvider(
+            true, UseMtlsEndpoint.NEVER, FakeMtlsProvider.createTestMtlsKeyStore(), "", false);
+    String endpointSelected =
+        ClientContext.getEndpoint(endpoint, mtlsEndpoint, endpointOverridable, provider);
+    assertEquals(endpoint, endpointSelected);
+  }
+
+  @Test
+  public void testGetKeyStoreThrows() throws IOException, GeneralSecurityException {
+    // Test the case that getKeyStore throws exceptions.
+    try {
+      boolean endpointOverridable = true;
+      MtlsProvider provider = new FakeMtlsProvider(true, UseMtlsEndpoint.AUTO, null, "", true);
+      ClientContext.getEndpoint(endpoint, mtlsEndpoint, endpointOverridable, provider);
+      fail("should throw and exception");
+    } catch (IOException e) {
+      assertTrue("expected to fail", e.getMessage().contains("getKeyStore throws exception"));
+    }
+  }
+
+  @Test
+  public void testOverridableEndpoint() throws IOException {
+    // Test that the endpoint set by "setOverrideableEndpoint" is overridable.
+    StubSettings settings = new FakeStubSettings.Builder().setOverridableEndpoint(endpoint).build();
+    assertTrue(settings.getEndpointOverridable());
+    assertEquals(endpoint, settings.getEndpoint());
+  }
+
+  @Test
+  public void testNotOverridableEndpoint() throws IOException {
+    // Test that the endpoint set by "setEndpoint" is not overridable.
+    StubSettings settings = new FakeStubSettings.Builder().setEndpoint(endpoint).build();
+    assertFalse(settings.getEndpointOverridable());
+    assertEquals(endpoint, settings.getEndpoint());
   }
 }
