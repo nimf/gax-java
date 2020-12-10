@@ -98,6 +98,8 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
   @Nullable
   private final ApiFunction<ManagedChannelBuilder, ManagedChannelBuilder> channelConfigurator;
 
+  private final ChannelSupplier channelSupplier;
+
   private InstantiatingGrpcChannelProvider(Builder builder) {
     this.processorCount = builder.processorCount;
     this.executor = builder.executor;
@@ -112,6 +114,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     this.keepAliveWithoutCalls = builder.keepAliveWithoutCalls;
     this.poolSize = builder.poolSize;
     this.channelConfigurator = builder.channelConfigurator;
+    this.channelSupplier = builder.channelSupplier;
     this.credentials = builder.credentials;
     this.channelPrimer = builder.channelPrimer;
     this.attemptDirectPath = builder.attemptDirectPath;
@@ -271,7 +274,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     int port = Integer.parseInt(endpoint.substring(colon + 1));
     String serviceAddress = endpoint.substring(0, colon);
 
-    ManagedChannelBuilder builder;
+    ManagedChannelBuilder builder = channelSupplier.forAddress(serviceAddress, port);
 
     // TODO(weiranf): Add API in ComputeEngineCredentials to check default service account.
     if (isDirectPathEnabled(serviceAddress)
@@ -302,8 +305,6 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
           ImmutableMap.<String, Object>of("loadBalancingConfig", ImmutableList.of(grpcLbPolicy));
 
       builder.defaultServiceConfig(loadBalancingConfig);
-    } else {
-      builder = ManagedChannelBuilder.forAddress(serviceAddress, port);
     }
     builder =
         builder
@@ -397,6 +398,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     @Nullable private Boolean keepAliveWithoutCalls;
     @Nullable private Integer poolSize;
     @Nullable private ApiFunction<ManagedChannelBuilder, ManagedChannelBuilder> channelConfigurator;
+    private ChannelSupplier channelSupplier = new DefaultChannelSupplier();
     @Nullable private Credentials credentials;
     @Nullable private ChannelPrimer channelPrimer;
     @Nullable private Boolean attemptDirectPath;
@@ -631,6 +633,23 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     @Nullable
     public ApiFunction<ManagedChannelBuilder, ManagedChannelBuilder> getChannelConfigurator() {
       return channelConfigurator;
+    }
+
+    /**
+     * Set the base ChannelBuilder for this class.
+     *
+     * <p>This can be used for advanced configuration like setting the netty flow control
+     * properties. The callback should supply a usable ManagedChannelBuilder.
+     */
+    @BetaApi("Surface for advanced channel configuration is not yet stable")
+    public Builder setChannelSupplier(ChannelSupplier channelSupplier) {
+      this.channelSupplier = channelSupplier;
+      return this;
+    }
+
+    @Nullable
+    public ChannelSupplier getChannelSupplier() {
+      return channelSupplier;
     }
   }
 
