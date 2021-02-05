@@ -146,7 +146,7 @@ public abstract class ClientContext {
     ExecutorProvider executorProvider = settings.getExecutorProvider();
     final ScheduledExecutorService executor = executorProvider.getExecutor();
 
-    Credentials credentials = null;
+    Credentials credentials = settings.getCredentialsProvider().getCredentials();
     if (settings.getCredentialsProvider() instanceof GoogleCredentialsProvider) {
       credentials =
           ((GoogleCredentialsProvider) settings.getCredentialsProvider())
@@ -165,8 +165,6 @@ public abstract class ClientContext {
               .setPrivateKeyId(serviceAccount.getPrivateKeyId())
               .setQuotaProjectId(serviceAccount.getQuotaProjectId())
               .build();
-    } else {
-      credentials = settings.getCredentialsProvider().getCredentials();
     }
 
     if (settings.getQuotaProjectId() != null) {
