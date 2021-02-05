@@ -35,10 +35,14 @@ import com.google.api.core.NanoClock;
 import com.google.api.gax.core.BackgroundResource;
 import com.google.api.gax.core.ExecutorAsBackgroundResource;
 import com.google.api.gax.core.ExecutorProvider;
+import com.google.api.gax.core.FixedCredentialsProvider;
+import com.google.api.gax.core.GoogleCredentialsProvider;
 import com.google.api.gax.rpc.internal.QuotaProjectIdHidingCredentials;
 import com.google.api.gax.tracing.ApiTracerFactory;
 import com.google.api.gax.tracing.NoopApiTracerFactory;
 import com.google.auth.Credentials;
+import com.google.auth.oauth2.ServiceAccountCredentials;
+import com.google.auth.oauth2.ServiceAccountJwtAccessCredentials;
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -142,7 +146,28 @@ public abstract class ClientContext {
     ExecutorProvider executorProvider = settings.getExecutorProvider();
     final ScheduledExecutorService executor = executorProvider.getExecutor();
 
-    Credentials credentials = settings.getCredentialsProvider().getCredentials();
+    Credentials credentials = null;
+    if (settings.getCredentialsProvider() instanceof GoogleCredentialsProvider) {
+      credentials =
+          ((GoogleCredentialsProvider) settings.getCredentialsProvider())
+              .getCredentials(settings.IsEndpointDefault());
+    } else if (settings.getCredentialsProvider() instanceof FixedCredentialsProvider
+        && credentials instanceof ServiceAccountCredentials
+        && ((ServiceAccountCredentials) credentials).getScopes().isEmpty()
+        && settings.getEndpoint() == settings.getDefaultApiEndpoint()) {
+      ServiceAccountCredentials serviceAccount = (ServiceAccountCredentials) credentials;
+
+      credentials =
+          ServiceAccountJwtAccessCredentials.newBuilder()
+              .setClientEmail(serviceAccount.getClientEmail())
+              .setClientId(serviceAccount.getClientId())
+              .setPrivateKey(serviceAccount.getPrivateKey())
+              .setPrivateKeyId(serviceAccount.getPrivateKeyId())
+              .setQuotaProjectId(serviceAccount.getQuotaProjectId())
+              .build();
+    } else {
+      credentials = settings.getCredentialsProvider().getCredentials();
+    }
 
     if (settings.getQuotaProjectId() != null) {
       // If the quotaProjectId is set, wrap original credentials with correct quotaProjectId as
