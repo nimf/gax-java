@@ -169,10 +169,6 @@ public abstract class StubSettings<SettingsT extends StubSettings<SettingsT>> {
         .toString();
   }
 
-  public boolean IsEndpointDefault() {
-    return endpoint.equals(defaultEndpoint);
-  }
-
   public abstract StubSettings.Builder toBuilder();
 
   public abstract static class Builder<

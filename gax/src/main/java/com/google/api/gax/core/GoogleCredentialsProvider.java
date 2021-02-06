@@ -38,6 +38,7 @@ import com.google.auto.value.AutoValue;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -66,10 +67,11 @@ public abstract class GoogleCredentialsProvider implements CredentialsProvider {
 
   @Override
   public Credentials getCredentials() throws IOException {
-    return getCredentials(false);
+    return getCredentials(false, null);
   }
 
-  public Credentials getCredentials(boolean endpointIsDefault) throws IOException {
+  public Credentials getCredentials(boolean endpointIsDefault, URI audienceForSelfSignedJwt)
+      throws IOException {
     GoogleCredentials credentials = getOAuth2Credentials();
     if (credentials == null) {
       credentials = GoogleCredentials.getApplicationDefault();
@@ -97,6 +99,7 @@ public abstract class GoogleCredentialsProvider implements CredentialsProvider {
           .setPrivateKey(serviceAccount.getPrivateKey())
           .setPrivateKeyId(serviceAccount.getPrivateKeyId())
           .setQuotaProjectId(serviceAccount.getQuotaProjectId())
+          .setDefaultAudience(audienceForSelfSignedJwt)
           .build();
     }
 
