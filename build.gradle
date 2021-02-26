@@ -6,6 +6,9 @@ buildscript {
     maven {
       url 'https://plugins.gradle.org/m2/'
     }
+    maven {
+      url 'https://oss.sonatype.org/content/repositories/snapshots/'
+    }
     mavenCentral()
     jcenter()
   }
@@ -58,6 +61,9 @@ if (project.hasProperty('ossrhUsername') && project.hasProperty('ossrhPassword')
 allprojects {
   repositories {
     mavenCentral() // for google-java-format's dependency
+    maven {
+      url 'https://oss.sonatype.org/content/repositories/snapshots/'
+    }
   }
 
   // Formatting tasks
@@ -140,6 +146,9 @@ subprojects {
   repositories {
     mavenLocal()
     mavenCentral()
+    maven {
+      url 'https://oss.sonatype.org/content/repositories/snapshots/'
+    }
   }
 
   configurations {
