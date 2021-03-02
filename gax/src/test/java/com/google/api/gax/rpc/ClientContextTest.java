@@ -673,7 +673,7 @@ public class ClientContextTest {
       boolean switchToMtlsEndpointAllowed = true;
       MtlsProvider provider = new FakeMtlsProvider(true, UseMtlsEndpoint.AUTO, null, "", true);
       ClientContext.getEndpoint(endpoint, mtlsEndpoint, switchToMtlsEndpointAllowed, provider);
-      fail("should throw and exception");
+      fail("should throw an exception");
     } catch (IOException e) {
       assertTrue("expected to fail", e.getMessage().contains("getKeyStore throws exception"));
     }

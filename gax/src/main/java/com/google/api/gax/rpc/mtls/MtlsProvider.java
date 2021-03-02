@@ -131,7 +131,7 @@ public class MtlsProvider {
   public KeyStore getKeyStore() throws IOException {
     try (InputStream stream = new FileInputStream(metadataPath)) {
       return getKeyStore(stream, processProvider);
-    } catch (FileNotFoundException ignored) {
+    } catch (FileNotFoundException exception) {
       // file doesn't exist
       return null;
     }
