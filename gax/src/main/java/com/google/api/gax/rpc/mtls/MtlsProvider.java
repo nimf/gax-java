@@ -171,7 +171,6 @@ public class MtlsProvider {
       throws IOException, InterruptedException {
     long startTime = System.currentTimeMillis();
     long remainTime = timeoutMilliseconds;
-    boolean terminated = false;
 
     while (remainTime > 0) {
       Thread.sleep(Math.min(remainTime + 1, 100));
@@ -180,18 +179,12 @@ public class MtlsProvider {
       try {
         // Check if process is terminated by polling the exitValue, which throws
         // IllegalThreadStateException if not terminated.
-        commandProcess.exitValue();
-        terminated = true;
-        break;
+        return commandProcess.exitValue();
       } catch (IllegalThreadStateException ignored) {
       }
     }
 
-    if (!terminated) {
-      commandProcess.destroy();
-      throw new IOException("cert provider command timed out");
-    }
-
-    return commandProcess.exitValue();
+    commandProcess.destroy();
+    throw new IOException("cert provider command timed out");
   }
 }
