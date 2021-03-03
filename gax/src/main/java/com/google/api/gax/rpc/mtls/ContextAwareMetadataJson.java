@@ -33,6 +33,7 @@ package com.google.api.gax.rpc.mtls;
 import com.google.api.client.json.GenericJson;
 import com.google.api.client.util.Key;
 import com.google.api.core.BetaApi;
+import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** Data class representing context_aware_metadata.json file. */
@@ -40,5 +41,10 @@ import java.util.List;
 public class ContextAwareMetadataJson extends GenericJson {
   /** Cert provider command */
   @Key("cert_provider_command")
-  public List<String> commands;
+  private List<String> commands;
+
+  /** Returns the cert provider command. */
+  public final ImmutableList<String> getCommands() {
+    return ImmutableList.copyOf(commands);
+  }
 }

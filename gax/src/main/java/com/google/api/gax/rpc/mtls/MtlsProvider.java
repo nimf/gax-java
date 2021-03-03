@@ -35,6 +35,7 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.util.SecurityUtils;
 import com.google.api.core.BetaApi;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -159,11 +160,11 @@ public class MtlsProvider {
   }
 
   @VisibleForTesting
-  static List<String> extractCertificateProviderCommand(InputStream contextAwareMetadata)
+  static ImmutableList<String> extractCertificateProviderCommand(InputStream contextAwareMetadata)
       throws IOException {
     JsonParser parser = new GsonFactory().createJsonParser(contextAwareMetadata);
     ContextAwareMetadataJson json = parser.parse(ContextAwareMetadataJson.class);
-    return json.commands;
+    return json.getCommands();
   }
 
   @VisibleForTesting
