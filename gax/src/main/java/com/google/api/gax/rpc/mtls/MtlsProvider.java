@@ -163,7 +163,7 @@ public class MtlsProvider {
       throws IOException {
     JsonParser parser = new GsonFactory().createJsonParser(contextAwareMetadata);
     ContextAwareMetadataJson json = parser.parse(ContextAwareMetadataJson.class);
-    return json.getCommands();
+    return json.commands;
   }
 
   @VisibleForTesting

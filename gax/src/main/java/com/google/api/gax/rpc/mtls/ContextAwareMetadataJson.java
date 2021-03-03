@@ -40,10 +40,5 @@ import java.util.List;
 public class ContextAwareMetadataJson extends GenericJson {
   /** Cert provider command */
   @Key("cert_provider_command")
-  private List<String> commands;
-
-  /** Returns the cert provider command. */
-  public final List<String> getCommands() {
-    return commands;
-  }
+  public List<String> commands;
 }
