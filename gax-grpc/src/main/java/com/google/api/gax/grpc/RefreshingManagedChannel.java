@@ -64,13 +64,17 @@ class RefreshingManagedChannel extends ManagedChannel {
   // Read: method calls on delegate and nextScheduledRefresh
   // Write: updating references of delegate and nextScheduledRefresh
   private final ReadWriteLock lock;
-  private final ChannelFactory channelFactory;
+  private final MonitoredChannelFactory channelFactory;
   private final ScheduledExecutorService scheduledExecutorService;
+  private final int channelIndex;
 
   RefreshingManagedChannel(
-      ChannelFactory channelFactory, ScheduledExecutorService scheduledExecutorService)
+      int channelIndex,
+      MonitoredChannelFactory channelFactory, ScheduledExecutorService scheduledExecutorService)
       throws IOException {
-    this.delegate = new SafeShutdownManagedChannel(channelFactory.createSingleChannel());
+    this.channelIndex = channelIndex;
+    this.delegate = new SafeShutdownManagedChannel(
+        channelFactory.createSingleChannel(channelIndex));
     this.channelFactory = channelFactory;
     this.scheduledExecutorService = scheduledExecutorService;
     this.lock = new ReentrantReadWriteLock();
@@ -88,7 +92,8 @@ class RefreshingManagedChannel extends ManagedChannel {
   private void refreshChannel() {
     SafeShutdownManagedChannel newChannel;
     try {
-      newChannel = new SafeShutdownManagedChannel(channelFactory.createSingleChannel());
+      newChannel = new SafeShutdownManagedChannel(
+          channelFactory.createSingleChannel(this.channelIndex));
     } catch (IOException ioException) {
       LOG.log(
           Level.WARNING,

@@ -33,6 +33,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import io.grpc.CallOptions;
 import io.grpc.ClientCall;
+import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
 import io.grpc.MethodDescriptor;
 import java.io.IOException;
@@ -59,6 +60,48 @@ class ChannelPool extends ManagedChannel {
   // if set, ChannelPool will manage the life cycle of channelRefreshExecutorService
   @Nullable private ScheduledExecutorService channelRefreshExecutorService;
 
+  static class ChannelStateMonitor implements Runnable {
+    private final int channelIndex;
+    private final ManagedChannel channel;
+    @Nullable private final ChannelStateReceiver channelStateReceiver;
+
+    private ChannelStateMonitor(
+        int channelIndex,
+        ManagedChannel channel,
+        @Nullable ChannelStateReceiver channelStateReceiver) {
+      this.channelIndex = channelIndex;
+      this.channel = channel;
+      this.channelStateReceiver = channelStateReceiver;
+    }
+
+    @Override
+    public void run() {
+      ConnectivityState newState = channel.getState(true);
+      if (channelStateReceiver != null) {
+        channelStateReceiver.channelStateUpdate(channelIndex, newState);
+      }
+      if (newState != ConnectivityState.SHUTDOWN) {
+        channel.notifyWhenStateChanged(newState, this);
+      }
+    }
+  }
+
+  private static MonitoredChannelFactory proxyChannelFactory(
+      final ChannelFactory channelFactory, final @Nullable ChannelStateReceiver channelStateReceiver) {
+    return new MonitoredChannelFactory() {
+      @Override
+      public ManagedChannel createSingleChannel(int index) throws IOException {
+        ManagedChannel channel = channelFactory.createSingleChannel();
+        if (channelStateReceiver != null) {
+          ChannelStateMonitor monitor = new ChannelStateMonitor(index, channel,
+              channelStateReceiver);
+          channel.notifyWhenStateChanged(ConnectivityState.IDLE, monitor);
+        }
+        return channel;
+      }
+    };
+  }
+
   /**
    * Factory method to create a non-refreshing channel pool
    *
@@ -66,10 +109,17 @@ class ChannelPool extends ManagedChannel {
    * @param channelFactory method to create the channels
    * @return ChannelPool of non refreshing channels
    */
-  static ChannelPool create(int poolSize, final ChannelFactory channelFactory) throws IOException {
+  static ChannelPool create(
+      int poolSize,
+      final ChannelFactory channelFactory,
+      @Nullable ChannelStateReceiver channelStateReceiver)
+      throws IOException {
+    MonitoredChannelFactory monitoredChannelFactory =
+        proxyChannelFactory(channelFactory, channelStateReceiver);
     List<ManagedChannel> channels = new ArrayList<>();
     for (int i = 0; i < poolSize; i++) {
-      channels.add(channelFactory.createSingleChannel());
+      ManagedChannel channel = monitoredChannelFactory.createSingleChannel(i);
+      channels.add(channel);
     }
     return new ChannelPool(channels, null);
   }
@@ -89,11 +139,16 @@ class ChannelPool extends ManagedChannel {
   static ChannelPool createRefreshing(
       int poolSize,
       final ChannelFactory channelFactory,
-      ScheduledExecutorService channelRefreshExecutorService)
+      ScheduledExecutorService channelRefreshExecutorService,
+      @Nullable ChannelStateReceiver channelStateReceiver)
       throws IOException {
+    MonitoredChannelFactory monitoredChannelFactory =
+        proxyChannelFactory(channelFactory, channelStateReceiver);
     List<ManagedChannel> channels = new ArrayList<>();
     for (int i = 0; i < poolSize; i++) {
-      channels.add(new RefreshingManagedChannel(channelFactory, channelRefreshExecutorService));
+      channels.add(
+          new RefreshingManagedChannel(i, monitoredChannelFactory, channelRefreshExecutorService)
+      );
     }
     return new ChannelPool(channels, channelRefreshExecutorService);
   }
@@ -105,10 +160,16 @@ class ChannelPool extends ManagedChannel {
    * @param channelFactory method to create the channels
    * @return ChannelPool of refreshing channels
    */
-  static ChannelPool createRefreshing(int poolSize, final ChannelFactory channelFactory)
+  static ChannelPool createRefreshing(
+      int poolSize,
+      final ChannelFactory channelFactory,
+      @Nullable ChannelStateReceiver channelStateReceiver)
       throws IOException {
     return createRefreshing(
-        poolSize, channelFactory, Executors.newScheduledThreadPool(CHANNEL_REFRESH_EXECUTOR_SIZE));
+        poolSize,
+        channelFactory,
+        Executors.newScheduledThreadPool(CHANNEL_REFRESH_EXECUTOR_SIZE),
+        channelStateReceiver);
   }
 
   /**

@@ -96,6 +96,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
   @Nullable private final ChannelPrimer channelPrimer;
   @Nullable private final Boolean attemptDirectPath;
   @VisibleForTesting final ImmutableMap<String, ?> directPathServiceConfig;
+  @Nullable private final ChannelStateReceiver channelStateReceiver;
 
   @Nullable
   private final ApiFunction<ManagedChannelBuilder, ManagedChannelBuilder> channelConfigurator;
@@ -121,6 +122,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
         builder.directPathServiceConfig == null
             ? getDefaultDirectPathServiceConfig()
             : builder.directPathServiceConfig;
+    this.channelStateReceiver = builder.channelStateReceiver;
   }
 
   @Override
@@ -222,9 +224,10 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
         };
     ManagedChannel outerChannel;
     if (channelPrimer != null) {
-      outerChannel = ChannelPool.createRefreshing(realPoolSize, channelFactory);
+      outerChannel = ChannelPool.createRefreshing(
+          realPoolSize, channelFactory, channelStateReceiver);
     } else {
-      outerChannel = ChannelPool.create(realPoolSize, channelFactory);
+      outerChannel = ChannelPool.create(realPoolSize, channelFactory, channelStateReceiver);
     }
     return GrpcTransportChannel.create(outerChannel);
   }
@@ -388,6 +391,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     @Nullable private ChannelPrimer channelPrimer;
     @Nullable private Boolean attemptDirectPath;
     @Nullable private ImmutableMap<String, ?> directPathServiceConfig;
+    @Nullable private ChannelStateReceiver channelStateReceiver;
 
     private Builder() {
       processorCount = Runtime.getRuntime().availableProcessors();
@@ -412,6 +416,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
       this.channelPrimer = provider.channelPrimer;
       this.attemptDirectPath = provider.attemptDirectPath;
       this.directPathServiceConfig = provider.directPathServiceConfig;
+      this.channelStateReceiver = provider.channelStateReceiver;
     }
 
     /** Sets the number of available CPUs, used internally for testing. */
@@ -635,6 +640,16 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     @Nullable
     public ApiFunction<ManagedChannelBuilder, ManagedChannelBuilder> getChannelConfigurator() {
       return channelConfigurator;
+    }
+
+    public Builder setChannelStateReceiver(ChannelStateReceiver channelStateReceiver) {
+      this.channelStateReceiver = channelStateReceiver;
+      return this;
+    }
+
+    @Nullable
+    public ChannelStateReceiver getChannelStateReceiver() {
+      return channelStateReceiver;
     }
   }
 
