@@ -33,16 +33,21 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import io.grpc.CallOptions;
 import io.grpc.ClientCall;
+import io.grpc.ConnectivityState;
 import io.grpc.ManagedChannel;
 import io.grpc.MethodDescriptor;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
+import javax.annotation.concurrent.GuardedBy;
 
 /**
  * A {@link ManagedChannel} that will send requests round robin via a set of channels.
@@ -58,6 +63,104 @@ class ChannelPool extends ManagedChannel {
   private final String authority;
   // if set, ChannelPool will manage the life cycle of channelRefreshExecutorService
   @Nullable private ScheduledExecutorService channelRefreshExecutorService;
+  // Map from an affinity key to a healthy (fallback) channel index.
+  @GuardedBy("this")
+  private final HashMap<Integer, Integer> fallbackMap;
+  // Map from a healthy channel index to affinity keys which are temporarily remapped to this
+  // channel.
+  @GuardedBy("this")
+  private final HashMap<Integer, Set<Integer>> hostedAffinities;
+  // Map from a broken channel index to their affected affinity keys that were remapped.
+  @GuardedBy("this")
+  private final HashMap<Integer, Set<Integer>> brokenChannels;
+  // Maximum number of channels allowed to redirect requests to other channels while reconnecting.
+  private final int maxFallbackChannels;
+
+  /**
+   * ChannelStateMonitor subscribes to channel's state changes and informs {@link ChannelPool} on
+   * any new state except SHUTDOWN. This monitor is used when `maxFallbackChannels` > 0 to detect
+   * when channel is not ready and temporarily route requests via healthy channels.
+   *
+   * <p>SHUTDOWN state can happen in two cases:
+   *
+   * <ol>
+   *   <li>When spanner client terminates. In this case we do not need to react to state change
+   *       because all the channels are shutting down.
+   *   <li>When {@link RefreshingManagedChannel} is used and the channel is refreshing. In this case
+   *       we will start monitoring the new channel and we don't need to react to SHUTDOWN on the
+   *       old channel.
+   * </ol>
+   */
+  private class ChannelStateMonitor implements Runnable {
+    private final int channelIndex;
+    private ManagedChannel channel;
+
+    private ChannelStateMonitor(int channelIndex) {
+      this.channelIndex = channelIndex;
+    }
+
+    @Override
+    public void run() {
+      if (channel == null) {
+        return;
+      }
+      ConnectivityState newState = channel.getState(true);
+      if (newState != ConnectivityState.SHUTDOWN) {
+        processChannelStateChange(channelIndex, newState);
+        channel.notifyWhenStateChanged(newState, this);
+      }
+    }
+
+    public void startMonitoring(ManagedChannel channel) {
+      this.channel = channel;
+      run();
+    }
+  }
+
+  private void processChannelStateChange(int index, ConnectivityState state) {
+    if (state == ConnectivityState.READY) {
+      if (brokenChannels.containsKey(index)) {
+        channelRecovered(index);
+      }
+      return;
+    }
+    if (!brokenChannels.containsKey(index)) {
+      channelBroke(index);
+    }
+  }
+
+  private void channelBroke(int index) {
+    synchronized (this) {
+      if (brokenChannels.containsKey(index)) {
+        return;
+      }
+      brokenChannels.put(index, new HashSet<Integer>());
+      // If any affinities were temporarily remapped to this channel we need to clear that mapping
+      // because this channel is not healthy anymore.
+      Set<Integer> hosted = hostedAffinities.get(index);
+      if (hosted == null) {
+        return;
+      }
+      for (Integer integer : hosted) {
+        fallbackMap.remove(integer);
+      }
+      hostedAffinities.remove(index);
+    }
+  }
+
+  private void channelRecovered(int index) {
+    synchronized (this) {
+      if (!brokenChannels.containsKey(index)) {
+        return;
+      }
+      for (Integer affinity : brokenChannels.get(index)) {
+        Integer hostChannel = fallbackMap.get(affinity);
+        hostedAffinities.get(hostChannel).remove(affinity);
+        fallbackMap.remove(affinity);
+      }
+      brokenChannels.remove(index);
+    }
+  }
 
   /**
    * Factory method to create a non-refreshing channel pool
@@ -67,11 +170,22 @@ class ChannelPool extends ManagedChannel {
    * @return ChannelPool of non refreshing channels
    */
   static ChannelPool create(int poolSize, final ChannelFactory channelFactory) throws IOException {
-    List<ManagedChannel> channels = new ArrayList<>();
-    for (int i = 0; i < poolSize; i++) {
-      channels.add(channelFactory.createSingleChannel());
-    }
-    return new ChannelPool(channels, null);
+    return create(poolSize, channelFactory, 0);
+  }
+
+  /**
+   * Factory method to create a non-refreshing channel pool
+   *
+   * @param poolSize number of channels in the pool
+   * @param channelFactory method to create the channels
+   * @param maxFallbackChannels maximum number of channels allowed to redirect requests while
+   *     reconnecting
+   * @return ChannelPool of non refreshing channels
+   */
+  static ChannelPool create(
+      int poolSize, final ChannelFactory channelFactory, int maxFallbackChannels)
+      throws IOException {
+    return new ChannelPool(poolSize, channelFactory, null, maxFallbackChannels);
   }
 
   /**
@@ -91,11 +205,26 @@ class ChannelPool extends ManagedChannel {
       final ChannelFactory channelFactory,
       ScheduledExecutorService channelRefreshExecutorService)
       throws IOException {
-    List<ManagedChannel> channels = new ArrayList<>();
-    for (int i = 0; i < poolSize; i++) {
-      channels.add(new RefreshingManagedChannel(channelFactory, channelRefreshExecutorService));
-    }
-    return new ChannelPool(channels, channelRefreshExecutorService);
+    return new ChannelPool(poolSize, channelFactory, channelRefreshExecutorService, 0);
+  }
+
+  /**
+   * Factory method to create a refreshing channel pool
+   *
+   * @param poolSize number of channels in the pool
+   * @param channelFactory method to create the channels
+   * @param maxFallbackChannels maximum number of channels allowed to redirect requests while
+   *     reconnecting
+   * @return ChannelPool of refreshing channels
+   */
+  static ChannelPool createRefreshing(
+      int poolSize, final ChannelFactory channelFactory, int maxFallbackChannels)
+      throws IOException {
+    return new ChannelPool(
+        poolSize,
+        channelFactory,
+        Executors.newScheduledThreadPool(CHANNEL_REFRESH_EXECUTOR_SIZE),
+        maxFallbackChannels);
   }
 
   /**
@@ -107,22 +236,68 @@ class ChannelPool extends ManagedChannel {
    */
   static ChannelPool createRefreshing(int poolSize, final ChannelFactory channelFactory)
       throws IOException {
-    return createRefreshing(
-        poolSize, channelFactory, Executors.newScheduledThreadPool(CHANNEL_REFRESH_EXECUTOR_SIZE));
+    return new ChannelPool(
+        poolSize,
+        channelFactory,
+        Executors.newScheduledThreadPool(CHANNEL_REFRESH_EXECUTOR_SIZE),
+        0);
   }
 
   /**
    * Initializes the channel pool. Assumes that all channels have the same authority.
    *
-   * @param channels a List of channels to pool.
+   * @param poolSize number of channels in the pool
+   * @param channelFactory method to create the channels
    * @param channelRefreshExecutorService periodically refreshes the channels
+   * @param maxFallbackChannels maximum number of channels allowed to redirect requests while
+   *     reconnecting
    */
   private ChannelPool(
-      List<ManagedChannel> channels,
-      @Nullable ScheduledExecutorService channelRefreshExecutorService) {
+      int poolSize,
+      final ChannelFactory channelFactory,
+      @Nullable ScheduledExecutorService channelRefreshExecutorService,
+      int maxFallbackChannels)
+      throws IOException {
+    this.maxFallbackChannels = Math.min(maxFallbackChannels, poolSize - 1);
+    this.channelRefreshExecutorService = channelRefreshExecutorService;
+    fallbackMap = new HashMap<>();
+    hostedAffinities = new HashMap<>(poolSize + 1, 1);
+    brokenChannels = new HashMap<>(poolSize + 1, 1);
+
+    List<ManagedChannel> channels = new ArrayList<>();
+    for (int i = 0; i < poolSize; i++) {
+      ManagedChannel channel;
+      ChannelFactory factory = proxiedChannelFactory(i, channelFactory);
+      if (channelRefreshExecutorService != null) {
+        channel = new RefreshingManagedChannel(factory, channelRefreshExecutorService);
+      } else {
+        channel = factory.createSingleChannel();
+      }
+      channels.add(channel);
+    }
+
     this.channels = ImmutableList.copyOf(channels);
     authority = channels.get(0).authority();
-    this.channelRefreshExecutorService = channelRefreshExecutorService;
+  }
+
+  /**
+   * If fallback channels allowed creates {@link ChannelStateMonitor} and injects monitoring after
+   * channel creation.
+   */
+  private ChannelFactory proxiedChannelFactory(
+      final int index, final ChannelFactory channelFactory) {
+    if (maxFallbackChannels < 1) {
+      return channelFactory;
+    }
+    return new ChannelFactory() {
+      @Override
+      public ManagedChannel createSingleChannel() throws IOException {
+        ManagedChannel ch = channelFactory.createSingleChannel();
+        ChannelStateMonitor monitor = new ChannelStateMonitor(index);
+        monitor.startMonitoring(ch);
+        return ch;
+      }
+    };
   }
 
   /** {@inheritDoc} */
@@ -223,21 +398,91 @@ class ChannelPool extends ManagedChannel {
     return getChannel(indexTicker.getAndIncrement());
   }
 
-  /**
-   * Returns one of the channels managed by this pool. The pool continues to "own" the channel, and
-   * the caller should not shut it down.
-   *
-   * @param affinity Two calls to this method with the same affinity returns the same channel. The
-   *     reverse is not true: Two calls with different affinities might return the same channel.
-   *     However, the implementation should attempt to spread load evenly.
-   */
-  ManagedChannel getChannel(int affinity) {
+  /** Converts an affinity key to a channel index. */
+  private int getChannelIndex(int affinity) {
     int index = affinity % channels.size();
     index = Math.abs(index);
     // If index is the most negative int, abs(index) is still negative.
     if (index < 0) {
       index = 0;
     }
-    return channels.get(index);
+    return index;
+  }
+
+  /**
+   * Returns one of the channels managed by this pool. The pool continues to "own" the channel, and
+   * the caller should not shut it down.
+   *
+   * @param affinity Two calls to this method with the same affinity returns the same channel. The
+   *     reverse is not true: Two calls with different affinities might return the same channel.
+   *     However, the implementation should attempt to spread load evenly. If fallback channels
+   *     allowed and the channel returned breaks the next call with the same affinity will return a
+   *     different (fallback) channel and subsequent calls will return the same fallback channel (as
+   *     long as it stays healthy) until the original channel recovers.
+   * @return A {@link ManagedChannel} for the affinity key.
+   */
+  ManagedChannel getChannel(int affinity) {
+    int index = getChannelIndex(affinity);
+    if (maxFallbackChannels < 1) {
+      return channels.get(index);
+    }
+    return getHealthyChannel(index, affinity);
+  }
+
+  /**
+   * Tries to remap an affinity key of a broken channel.
+   *
+   * @return A healthy channel index or the original broken channel index if unsuccessful.
+   */
+  private int fallbackAffinity(int brokenIndex, int affinity) {
+    synchronized (this) {
+      Integer fallbackChannelIndex = fallbackMap.get(affinity);
+      if (fallbackChannelIndex != null) {
+        return fallbackChannelIndex;
+      }
+      if (brokenChannels.size() >= maxFallbackChannels) {
+        // To many broken channels -- do not remap.
+        return brokenIndex;
+      }
+      int healthyIndex;
+      do {
+        healthyIndex = getChannelIndex(indexTicker.getAndIncrement());
+      } while (brokenChannels.containsKey(healthyIndex));
+      fallbackMap.put(affinity, healthyIndex);
+      appendToMap(hostedAffinities, healthyIndex, affinity);
+      appendToMap(brokenChannels, brokenIndex, affinity);
+      return healthyIndex;
+    }
+  }
+
+  private void appendToMap(HashMap<Integer, Set<Integer>> map, int key, int value) {
+    Set<Integer> list = map.get(key);
+    if (list != null) {
+      list.add(value);
+    } else {
+      list = new HashSet<>();
+      list.add(value);
+      map.put(key, list);
+    }
+  }
+
+  /**
+   * Tries to get a healthy channel for an affinity key. If there are more broken channels than
+   * allowed to have a fallback returns the original channel for the affinity key.
+   */
+  private ManagedChannel getHealthyChannel(int index, int affinity) {
+    if (!brokenChannels.containsKey(index)) {
+      return channels.get(index);
+    }
+    Integer fallbackChannelIndex = fallbackMap.get(affinity);
+    if (fallbackChannelIndex != null) {
+      return channels.get(fallbackChannelIndex);
+    }
+    if (brokenChannels.size() >= maxFallbackChannels) {
+      // To many broken channels -- do not remap.
+      return channels.get(index);
+    }
+    fallbackChannelIndex = fallbackAffinity(index, affinity);
+    return channels.get(fallbackChannelIndex);
   }
 }
