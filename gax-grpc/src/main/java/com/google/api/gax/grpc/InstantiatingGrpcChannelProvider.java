@@ -223,10 +223,11 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
           }
         };
     ManagedChannel outerChannel;
+    int maxFallback = maxFallbackChannels == null ? 0 : maxFallbackChannels;
     if (channelPrimer != null) {
-      outerChannel = ChannelPool.createRefreshing(realPoolSize, channelFactory);
+      outerChannel = ChannelPool.createRefreshing(realPoolSize, channelFactory, maxFallback);
     } else {
-      outerChannel = ChannelPool.create(realPoolSize, channelFactory);
+      outerChannel = ChannelPool.create(realPoolSize, channelFactory, maxFallback);
     }
     return GrpcTransportChannel.create(outerChannel);
   }
@@ -390,7 +391,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     @Nullable private ChannelPrimer channelPrimer;
     @Nullable private Boolean attemptDirectPath;
     @Nullable private ImmutableMap<String, ?> directPathServiceConfig;
-    private Integer maxFallbackChannels = 0;
+    @Nullable private Integer maxFallbackChannels;
 
     private Builder() {
       processorCount = Runtime.getRuntime().availableProcessors();
