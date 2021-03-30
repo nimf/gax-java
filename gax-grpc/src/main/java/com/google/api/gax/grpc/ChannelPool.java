@@ -46,6 +46,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Logger;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
@@ -55,6 +56,7 @@ import javax.annotation.concurrent.GuardedBy;
  * <p>Package-private for internal use.
  */
 class ChannelPool extends ManagedChannel {
+  private static final Logger logger = Logger.getLogger(ChannelPool.class.getName());
   // size greater than 1 to allow multiple channel to refresh at the same time
   // size not too large so refreshing channels doesn't use too many threads
   private static final int CHANNEL_REFRESH_EXECUTOR_SIZE = 2;
@@ -258,6 +260,7 @@ class ChannelPool extends ManagedChannel {
       @Nullable ScheduledExecutorService channelRefreshExecutorService,
       int maxFallbackChannels)
       throws IOException {
+    logger.fine("CREATING NEW IMPROVED CHANNEL POOL...");
     this.maxFallbackChannels = Math.min(maxFallbackChannels, poolSize - 1);
     this.channelRefreshExecutorService = channelRefreshExecutorService;
     fallbackMap = new HashMap<>();
