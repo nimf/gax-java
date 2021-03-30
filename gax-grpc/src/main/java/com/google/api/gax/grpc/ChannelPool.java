@@ -107,6 +107,7 @@ class ChannelPool extends ManagedChannel {
         return;
       }
       ConnectivityState newState = channel.getState(true);
+      logger.fine(String.format("FALLBACK FEATURE: Channel %d changed state to %s", channelIndex, newState));
       if (newState != ConnectivityState.SHUTDOWN) {
         processChannelStateChange(channelIndex, newState);
         channel.notifyWhenStateChanged(newState, this);
@@ -136,6 +137,7 @@ class ChannelPool extends ManagedChannel {
       if (brokenChannels.containsKey(index)) {
         return;
       }
+      logger.fine(String.format("FALLBACK FEATURE: Channel %d is considered broken", index));
       brokenChannels.put(index, new HashSet<Integer>());
       // If any affinities were temporarily remapped to this channel we need to clear that mapping
       // because this channel is not healthy anymore.
@@ -155,6 +157,7 @@ class ChannelPool extends ManagedChannel {
       if (!brokenChannels.containsKey(index)) {
         return;
       }
+      logger.fine(String.format("FALLBACK FEATURE: Channel %d is considered recovered", index));
       for (Integer affinity : brokenChannels.get(index)) {
         Integer hostChannel = fallbackMap.get(affinity);
         hostedAffinities.get(hostChannel).remove(affinity);
@@ -260,7 +263,7 @@ class ChannelPool extends ManagedChannel {
       @Nullable ScheduledExecutorService channelRefreshExecutorService,
       int maxFallbackChannels)
       throws IOException {
-    logger.fine("CREATING NEW IMPROVED CHANNEL POOL...");
+    logger.fine(String.format("CREATING NEW IMPROVED CHANNEL POOL WITH UPTO %d FALLBACK CHANNELS...", maxFallbackChannels));
     this.maxFallbackChannels = Math.min(maxFallbackChannels, poolSize - 1);
     this.channelRefreshExecutorService = channelRefreshExecutorService;
     fallbackMap = new HashMap<>();
@@ -441,10 +444,12 @@ class ChannelPool extends ManagedChannel {
     synchronized (this) {
       Integer fallbackChannelIndex = fallbackMap.get(affinity);
       if (fallbackChannelIndex != null) {
+        logger.fine(String.format("FALLBACK FEATURE: Fallback for channel %d, affinity %d found as %d", brokenIndex, affinity, fallbackChannelIndex));
         return fallbackChannelIndex;
       }
       if (brokenChannels.size() >= maxFallbackChannels) {
         // To many broken channels -- do not remap.
+        logger.fine(String.format("FALLBACK FEATURE: Cannot fallback for channel %d, affinity %d. Too many broken channels", brokenIndex, affinity));
         return brokenIndex;
       }
       int healthyIndex;
@@ -454,6 +459,7 @@ class ChannelPool extends ManagedChannel {
       fallbackMap.put(affinity, healthyIndex);
       appendToMap(hostedAffinities, healthyIndex, affinity);
       appendToMap(brokenChannels, brokenIndex, affinity);
+      logger.fine(String.format("FALLBACK FEATURE: Fallback for channel %d, affinity %d created as %d", brokenIndex, affinity, healthyIndex));
       return healthyIndex;
     }
   }
@@ -477,12 +483,15 @@ class ChannelPool extends ManagedChannel {
     if (!brokenChannels.containsKey(index)) {
       return channels.get(index);
     }
+    logger.fine(String.format("FALLBACK FEATURE: Look up fallback for channel %d, affinity %d", index, affinity));
     Integer fallbackChannelIndex = fallbackMap.get(affinity);
     if (fallbackChannelIndex != null) {
+      logger.fine(String.format("FALLBACK FEATURE: Fallback for channel %d, affinity %d found as %d", index, affinity, fallbackChannelIndex));
       return channels.get(fallbackChannelIndex);
     }
     if (brokenChannels.size() >= maxFallbackChannels) {
       // To many broken channels -- do not remap.
+      logger.fine(String.format("FALLBACK FEATURE: Cannot fallback for channel %d, affinity %d. Too many broken channels", index, affinity));
       return channels.get(index);
     }
     fallbackChannelIndex = fallbackAffinity(index, affinity);
