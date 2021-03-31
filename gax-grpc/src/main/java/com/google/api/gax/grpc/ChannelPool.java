@@ -447,7 +447,7 @@ class ChannelPool extends ManagedChannel {
         logger.fine(String.format("FALLBACK FEATURE: Fallback for channel %d, affinity %d found as %d", brokenIndex, affinity, fallbackChannelIndex));
         return fallbackChannelIndex;
       }
-      if (brokenChannels.size() >= maxFallbackChannels) {
+      if (brokenChannels.size() > maxFallbackChannels) {
         // To many broken channels -- do not remap.
         logger.fine(String.format("FALLBACK FEATURE: Cannot fallback for channel %d, affinity %d. Too many broken channels", brokenIndex, affinity));
         return brokenIndex;
@@ -489,7 +489,7 @@ class ChannelPool extends ManagedChannel {
       logger.fine(String.format("FALLBACK FEATURE: Fallback for channel %d, affinity %d found as %d", index, affinity, fallbackChannelIndex));
       return channels.get(fallbackChannelIndex);
     }
-    if (brokenChannels.size() >= maxFallbackChannels) {
+    if (brokenChannels.size() > maxFallbackChannels) {
       // To many broken channels -- do not remap.
       logger.fine(String.format("FALLBACK FEATURE: Cannot fallback for channel %d, affinity %d. Too many broken channels", index, affinity));
       return channels.get(index);
