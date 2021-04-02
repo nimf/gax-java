@@ -149,6 +149,7 @@ class ChannelPool extends ManagedChannel {
         fallbackMap.remove(integer);
       }
       hostedAffinities.remove(index);
+      logger.fine(String.format("FALLBACK FEATURE: Currently broken channels: %s", brokenChannels.keySet().toArray().toString()));
     }
   }
 
@@ -164,6 +165,7 @@ class ChannelPool extends ManagedChannel {
         fallbackMap.remove(affinity);
       }
       brokenChannels.remove(index);
+      logger.fine(String.format("FALLBACK FEATURE: Currently broken channels: %s", brokenChannels.keySet().toArray().toString()));
     }
   }
 
