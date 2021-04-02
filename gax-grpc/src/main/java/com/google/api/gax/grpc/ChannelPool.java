@@ -136,6 +136,15 @@ class ChannelPool extends ManagedChannel {
     }
   }
 
+  private void logBrokenChannels() {
+    StringBuilder list = new StringBuilder();
+    for (Integer i : brokenChannels.keySet()) {
+      list.append(" ");
+      list.append(i.toString());
+    }
+    log(String.format("Currently broken channels: %s", list));
+  }
+
   private void channelBroke(int index) {
     synchronized (this) {
       if (brokenChannels.containsKey(index)) {
@@ -153,7 +162,7 @@ class ChannelPool extends ManagedChannel {
         fallbackMap.remove(integer);
       }
       hostedAffinities.remove(index);
-      log(String.format("Currently broken channels: %s", brokenChannels.keySet().toArray().toString()));
+      logBrokenChannels();
     }
   }
 
@@ -169,7 +178,7 @@ class ChannelPool extends ManagedChannel {
         fallbackMap.remove(affinity);
       }
       brokenChannels.remove(index);
-      log(String.format("Currently broken channels: %s", brokenChannels.keySet().toArray().toString()));
+      logBrokenChannels();
     }
   }
 
