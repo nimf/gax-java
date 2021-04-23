@@ -278,7 +278,10 @@ class ChannelPool extends ManagedChannel {
       @Nullable ScheduledExecutorService channelRefreshExecutorService,
       int maxFallbackChannels)
       throws IOException {
-    logger.fine(String.format("CREATING NEW IMPROVED CHANNEL POOL WITH UPTO %d FALLBACK CHANNELS...", maxFallbackChannels));
+    logger.fine(
+        String.format(
+            "CREATING NEW IMPROVED CHANNEL POOL WITH UPTO %d FALLBACK CHANNELS...",
+            maxFallbackChannels));
     this.maxFallbackChannels = Math.min(maxFallbackChannels, poolSize - 1);
     this.channelRefreshExecutorService = channelRefreshExecutorService;
     fallbackMap = new HashMap<>();
@@ -462,12 +465,18 @@ class ChannelPool extends ManagedChannel {
       }
       Integer fallbackChannelIndex = fallbackMap.get(affinity);
       if (fallbackChannelIndex != null) {
-        log(String.format("Fallback for channel %d, affinity %d found as %d", index, affinity, fallbackChannelIndex));
+        log(
+            String.format(
+                "Fallback for channel %d, affinity %d found as %d",
+                index, affinity, fallbackChannelIndex));
         return fallbackChannelIndex;
       }
       if (brokenChannels.size() > maxFallbackChannels) {
         // To many broken channels -- do not remap.
-        log(String.format("Cannot fallback for channel %d, affinity %d. Too many broken channels", index, affinity));
+        log(
+            String.format(
+                "Cannot fallback for channel %d, affinity %d. Too many broken channels",
+                index, affinity));
         return index;
       }
       int healthyIndex;
@@ -477,7 +486,9 @@ class ChannelPool extends ManagedChannel {
       fallbackMap.put(affinity, healthyIndex);
       appendToMap(hostedAffinities, healthyIndex, affinity);
       appendToMap(brokenChannels, index, affinity);
-      log(String.format("Fallback for channel %d, affinity %d created as %d", index, affinity, healthyIndex));
+      log(
+          String.format(
+              "Fallback for channel %d, affinity %d created as %d", index, affinity, healthyIndex));
       return healthyIndex;
     }
   }
@@ -504,12 +515,18 @@ class ChannelPool extends ManagedChannel {
     log(String.format("Look up fallback for channel %d, affinity %d", index, affinity));
     Integer fallbackChannelIndex = fallbackMap.get(affinity);
     if (fallbackChannelIndex != null) {
-      log(String.format("Fallback for channel %d, affinity %d found as %d", index, affinity, fallbackChannelIndex));
+      log(
+          String.format(
+              "Fallback for channel %d, affinity %d found as %d",
+              index, affinity, fallbackChannelIndex));
       return channels.get(fallbackChannelIndex);
     }
     if (brokenChannels.size() > maxFallbackChannels) {
       // To many broken channels -- do not remap.
-      log(String.format("Cannot fallback for channel %d, affinity %d. Too many broken channels", index, affinity));
+      log(
+          String.format(
+              "Cannot fallback for channel %d, affinity %d. Too many broken channels",
+              index, affinity));
       return channels.get(index);
     }
     fallbackChannelIndex = fallbackAffinity(index, affinity);
