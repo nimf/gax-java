@@ -96,6 +96,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
   @Nullable private final ChannelPrimer channelPrimer;
   @Nullable private final Boolean attemptDirectPath;
   @VisibleForTesting final ImmutableMap<String, ?> directPathServiceConfig;
+  private final Integer maxFallbackChannels;
 
   @Nullable
   private final ApiFunction<ManagedChannelBuilder, ManagedChannelBuilder> channelConfigurator;
@@ -121,6 +122,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
         builder.directPathServiceConfig == null
             ? getDefaultDirectPathServiceConfig()
             : builder.directPathServiceConfig;
+    this.maxFallbackChannels = builder.maxFallbackChannels;
   }
 
   @Override
@@ -221,10 +223,11 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
           }
         };
     ManagedChannel outerChannel;
+    int maxFallback = maxFallbackChannels == null ? 0 : maxFallbackChannels;
     if (channelPrimer != null) {
-      outerChannel = ChannelPool.createRefreshing(realPoolSize, channelFactory);
+      outerChannel = ChannelPool.createRefreshing(realPoolSize, channelFactory, maxFallback);
     } else {
-      outerChannel = ChannelPool.create(realPoolSize, channelFactory);
+      outerChannel = ChannelPool.create(realPoolSize, channelFactory, maxFallback);
     }
     return GrpcTransportChannel.create(outerChannel);
   }
@@ -388,6 +391,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     @Nullable private ChannelPrimer channelPrimer;
     @Nullable private Boolean attemptDirectPath;
     @Nullable private ImmutableMap<String, ?> directPathServiceConfig;
+    @Nullable private Integer maxFallbackChannels;
 
     private Builder() {
       processorCount = Runtime.getRuntime().availableProcessors();
@@ -412,6 +416,7 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
       this.channelPrimer = provider.channelPrimer;
       this.attemptDirectPath = provider.attemptDirectPath;
       this.directPathServiceConfig = provider.directPathServiceConfig;
+      this.maxFallbackChannels = provider.maxFallbackChannels;
     }
 
     /** Sets the number of available CPUs, used internally for testing. */
@@ -635,6 +640,25 @@ public final class InstantiatingGrpcChannelProvider implements TransportChannelP
     @Nullable
     public ApiFunction<ManagedChannelBuilder, ManagedChannelBuilder> getChannelConfigurator() {
       return channelConfigurator;
+    }
+
+    /**
+     * Number of underlying gRPC channels allowed to redirect requests to other channels while not
+     * in a ready state.
+     */
+    public Integer getMaxFallbackChannels() {
+      return maxFallbackChannels;
+    }
+
+    /**
+     * Sets the number of underlying gRPC channels allowed to redirect requests to other channels
+     * while not in a ready state. This redirection will happen even for a request with affinity,
+     * but it will try to keep the fallback channel the same to keep affinity with the fallback
+     * channel. When the original channel recovers new requests will not be redirected anymore.
+     */
+    public Builder setMaxFallbackChannels(int maxFallbackChannels) {
+      this.maxFallbackChannels = maxFallbackChannels;
+      return this;
     }
   }
 
